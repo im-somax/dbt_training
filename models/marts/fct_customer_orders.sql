@@ -1,7 +1,7 @@
 -- with statement
 -- import CTEs
 with
-    orders as (select * from {{ source("jaffle_shop", "orders") }}),
+    base_orders as (select * from {{ source("jaffle_shop", "orders") }}),
 
     base_customers as (select * from {{ source("jaffle_shop", "customers") }}),
 
@@ -11,22 +11,29 @@ with
     -- Staging
     base_customers as (select first_name || ' ' || last_name as name, * from customers),
 
-    a as (
+    orders as (
         select
             row_number() over (
                 partition by user_id order by order_date, id
             ) as user_order_seq,
             *
-        from orders
+        from base_orders
     ),
 
-    b as (select first_name || ' ' || last_name as name, * from base_customers),
+    customers as (
+        select 
+        id as customer_id,
+        last_name as surname,
+        first_name as givenname,
+        first_name || ' ' || last_name as full_name
+        from base_customers
+        ),
     customer_order_history as (
         select
-            b.id as customer_id,
-            b.name as full_name,
-            b.last_name as surname,
-            b.first_name as givenname,
+            customers.customer_id,
+            customers.full_name,
+            customers.surname,
+            customers.givenname,
             min(order_date) as first_order_date,
             min(
                 case
@@ -65,13 +72,13 @@ with
 
         from a
 
-        join b on a.user_id = b.id
+        join b on a.user_id = customers.customer_id
 
         left outer join payments c on a.id = c.orderid
 
         where a.status not in ('pending') and c.status != 'fail'
 
-        group by b.id, b.name, b.last_name, b.first_name
+        group by customers.customer_id, customers.full_name, customers.surname, customers.givenname
     ),
 
     -- final CTE
@@ -89,7 +96,7 @@ with
             payments.status as payment_status
         from orders
 
-        join customers on orders.user_id = customers.id
+        join customers on orders.user_id = customers.customer_id
 
         join
             customer_order_history
